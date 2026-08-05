@@ -83,9 +83,11 @@ All slugs are validated against the live OpenRouter model catalog at startup. Mi
 
 | Mode | Behavior |
 |---|---|
-| `shadow` (default) | Records the route that would have been selected while continuing to use a fixed baseline model. Safe for initial deployment. |
-| `active` | Routes and escalates automatically. |
+| `active` (default) | Classifies each new session and routes it to the optimal model automatically. |
+| `shadow` | Records the route that would have been selected while continuing to use a fixed baseline model. Safe for initial evaluation. |
 | `fixed` | Always uses one configured alias while keeping health checks and telemetry enabled. |
+
+Mode is read live from `~/.hermes/config.yaml` — change it and the next request picks it up without restarting Hermes.
 
 ## Classification
 
@@ -117,20 +119,34 @@ Escalation uses observable evidence, not the worker model's self-reported confid
 
 ## Installation
 
+Two pieces: the Python package (installed into Hermes's venv) and a small plugin shim (so Hermes discovers the provider).
+
 ```bash
-# Install the package
-pip install hermes-smart-router
+# 1. Install the package into Hermes's virtualenv
+~/.hermes/hermes-agent/venv/bin/pip install hermes-smart-router
 
 # Or from source
 git clone https://github.com/KevinOBytes/hermes-smart-router.git
 cd hermes-smart-router
-pip install -e .
+~/.hermes/hermes-agent/venv/bin/pip install .
 
-# Create the plugin directory for Hermes discovery
+# 2. Create the plugin shim so Hermes discovers the provider
 mkdir -p ~/.hermes/plugins/model-providers/smart-router
-# The plugin __init__.py is installed to site-packages;
-# symlink or copy it to the Hermes plugin dir
+cat > ~/.hermes/plugins/model-providers/smart-router/__init__.py <<'EOF'
+"""Hermes Smart Router — model-provider plugin shim."""
+from hermes_smart_router.plugin import SMART_ROUTER_PROFILE  # noqa: F401
+EOF
+cat > ~/.hermes/plugins/model-providers/smart-router/plugin.yaml <<'EOF'
+name: smart-router
+kind: model-provider
+version: 0.1.0
+description: Task-aware model router via local Gemma classification
+EOF
 ```
+
+The import of `hermes_smart_router.plugin` registers the provider automatically. No Hermes core files are modified — the plugin uses only the sanctioned `ProviderProfile` hooks (`prepare_messages` and `build_api_kwargs_extras`) to classify the request and swap the virtual model name for the routed concrete slug.
+
+Auxiliary side-tasks (title generation, context compression, vision fallbacks) never see the virtual model name — the profile pins `default_aux_model` to the cheap structured-output model so Hermes routes those directly.
 
 ## Configuration
 
@@ -140,9 +156,19 @@ Add to `~/.hermes/config.yaml`:
 model:
   default: tko/smart-router
   provider: smart-router
+  base_url: https://openrouter.ai/api/v1
+
+# Register the provider name with the Hermes CLI resolver
+# (silences "Unknown provider" during setup flows)
+providers:
+  smart-router:
+    name: TKO Smart Router
+    api: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    transport: openai_chat
 
 smart_router:
-  mode: shadow  # or active, fixed
+  mode: active  # or shadow, fixed
   ollama:
     model: gemma4:31b
     base_url: http://127.0.0.1:11434

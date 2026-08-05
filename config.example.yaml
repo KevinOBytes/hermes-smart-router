@@ -1,27 +1,33 @@
 # Hermes Smart Router — Example Configuration
 #
-# Copy this to ~/.hermes/config.yaml and add the smart_router section.
-# Then set your main model to tko/smart-router.
+# Copy the smart_router section into ~/.hermes/config.yaml and set your
+# main model to tko/smart-router (see README Installation).
 
 smart_router:
-  # Operating mode: shadow (default, records routes without changing model),
-  # active (performs routing), or fixed (always uses one alias)
-  mode: shadow
+  # Operating mode:
+  #   active — classifies each new session and routes to the optimal model
+  #   shadow — records the route that WOULD be selected without changing model
+  #   fixed  — always uses fixed_alias (health checks and telemetry stay on)
+  mode: active
 
   # Alias to use in fixed mode
   fixed_alias: luna
 
   # Local Ollama classifier configuration
+  # gemma4:31b needs ~20-25s for classification on Apple Silicon;
+  # keep timeout_seconds at 30 or higher. Smaller Gemma models are
+  # faster but less accurate on the 8-class taxonomy.
   ollama:
-    model: gemma4:12b
+    model: gemma4:31b
     base_url: http://127.0.0.1:11434
-    timeout_seconds: 3
+    timeout_seconds: 30
     temperature: 0.0
-    max_output_tokens: 256
+    max_output_tokens: 512
     confidence_threshold: 0.70
 
   # Logical alias -> concrete model slug mappings
   # Override defaults by providing your own entries here.
+  # Slugs below are verified against the live OpenRouter catalog.
   aliases:
     luna:
       model_slug: openai/gpt-5.6-luna
@@ -34,7 +40,7 @@ smart_router:
       requires_vision: false
       supports_audio: false
     glm:
-      model_slug: zai/glm-5.2
+      model_slug: z-ai/glm-5.2
       requires_tools: true
       requires_vision: true
       supports_audio: false
@@ -60,12 +66,12 @@ smart_router:
       supports_audio: false
       fallback_slug: anthropic/claude-opus-5
     kimi_k3:
-      model_slug: moonshot/kimi-k3
+      model_slug: moonshotai/kimi-k3
       requires_tools: true
       requires_vision: true
       supports_audio: false
     kimi_code:
-      model_slug: moonshot/kimi-k2.7-code
+      model_slug: moonshotai/kimi-k2.7-code
       requires_tools: true
       requires_vision: false
       supports_audio: false
@@ -86,7 +92,7 @@ smart_router:
   sensitivity:
     enabled: false
     # allowed_providers: [openai, anthropic]
-    warn_providers: [deepseek, zai, moonshot]
+    warn_providers: [deepseek, z-ai, moonshotai]
 
   # OpenRouter configuration
   openrouter:
@@ -102,5 +108,6 @@ smart_router:
     backend: sqlite
     path: ~/.hermes/smart-router/state.db
 
-  # Task pin TTL (seconds)
+  # Session route pin TTL (seconds) — a session keeps its routed model
+  # for this long before the next request is reclassified.
   task_ttl_seconds: 3600
