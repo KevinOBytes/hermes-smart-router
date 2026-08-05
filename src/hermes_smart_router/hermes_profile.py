@@ -218,11 +218,16 @@ class SmartRouterProfile(ProviderProfile):  # type: ignore[misc]
             alias = str(cfg.get("fixed_alias", _FALLBACK_ALIAS))
             return self._resolve_alias(alias, cfg), alias
 
-        # Session pin: reuse a prior classification within TTL.
+        # Session pin: reuse a prior classification. Sliding TTL — every hit
+        # refreshes the pin, so an ACTIVE conversation never re-routes
+        # mid-stream. Re-routing would switch models and invalidate the
+        # provider's cached prompt prefix (cache-read discounts are per-model),
+        # re-billing the full context at uncached input rates.
         if session_id:
             with self._lock:
                 pin = self._pins.get(session_id)
                 if pin and (time.time() - pin[2]) < ttl:
+                    self._pins[session_id] = (pin[0], pin[1], time.time())
                     return pin[0], pin[1]
 
         # Classify: deterministic → Gemma → fallback.
