@@ -2,7 +2,7 @@
 
 This module registers the smart-router as a Hermes model-provider plugin.
 It presents one stable virtual model, tko/smart-router, that routes tasks
-to concrete OpenRouter models based on local Gemma classification.
+to concrete OpenRouter models based on local BERT classification.
 
 The plugin is discovered automatically by Hermes when installed under
 $HERMES_HOME/plugins/model-providers/smart-router/ or when the
@@ -30,7 +30,7 @@ SMART_ROUTER_PROFILE = SmartRouterProfile(
     name="smart-router",
     aliases=("tko/smart-router",),
     display_name="TKO Smart Router",
-    description="Task-aware model router: classifies tasks via local Gemma, routes to optimal OpenRouter model",
+    description="Task-aware model router: classifies tasks via local BERT, routes to optimal OpenRouter model",
     signup_url="https://openrouter.ai/keys",
     env_vars=("OPENROUTER_API_KEY",),
     base_url="https://openrouter.ai/api/v1",

@@ -9,15 +9,11 @@ import yaml
 from pydantic import BaseModel, Field
 
 
-class OllamaConfig(BaseModel):
-    """Local Ollama configuration for the Gemma classifier."""
+class BertConfig(BaseModel):
+    """Local BERT classifier configuration."""
 
-    model: str = "gemma4:31b"
-    base_url: str = "http://127.0.0.1:11434"
-    timeout_seconds: int = 30
-    temperature: float = 0.0
-    max_output_tokens: int = 512
-    confidence_threshold: float = 0.70
+    model_path: str = "~/.smart-router-proxy/classifier-model"
+    confidence_threshold: float = 0.45
 
 
 class AliasRouteConfig(BaseModel):
@@ -77,7 +73,7 @@ class SmartRouterConfig(BaseModel):
     fixed_alias: str = "luna"
     """Alias to use in fixed mode."""
 
-    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    bert: BertConfig = Field(default_factory=BertConfig)
 
     aliases: dict[str, AliasRouteConfig] = Field(default_factory=dict)
     """Logical alias -> concrete model mapping. Overrides defaults."""

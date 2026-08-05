@@ -15,9 +15,8 @@ OpenRouter sticky session keys, etc.) are delegated to the registered
 OpenRouter profile so this plugin never duplicates that logic.
 
 Routing pipeline per request:
-  deterministic classifier (regex, instant)
-    → Gemma via local Ollama (sync HTTP, config timeout)
-      → fallback alias (luna)
+  BERT classifier (distilbert + MLX, ~5-15ms)
+    → fallback alias (luna)
 
 The selected route is pinned per Hermes session (TTL from config) so only
 the first request of a session pays classification latency.
@@ -25,15 +24,13 @@ the first request of a session pays classification latency.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from hermes_smart_router.deterministic import classify_deterministic
+from hermes_smart_router.bert_classifier import get_classifier
 from hermes_smart_router.models import (
     DEFAULT_ALIAS_MAPPINGS,
     DEFAULT_ROUTE_TABLE,
@@ -49,20 +46,6 @@ else:
 logger = logging.getLogger(__name__)
 
 _FALLBACK_ALIAS = "luna"
-
-_CLASSIFICATION_PROMPT = (
-    "Classify this request into exactly one category.\n\n"
-    "Categories: structured_simple, agentic_execution, software_engineering, "
-    "security_engineering, knowledge_reasoning, writing_communication, "
-    "computer_use, visual_frontend\n\n"
-    "Return ONLY valid JSON:\n"
-    '{"task_class": "<category>", "risk": "low|moderate|high|critical", '
-    '"sensitivity": "public|internal|confidential|restricted", '
-    '"confidence": 0.0-1.0}\n\n'
-    "Request:"
-)
-
-_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
 def _hermes_home() -> Path:
@@ -230,7 +213,7 @@ class SmartRouterProfile(ProviderProfile):  # type: ignore[misc]
                     self._pins[session_id] = (pin[0], pin[1], time.time())
                     return pin[0], pin[1]
 
-        # Classify: deterministic → Gemma → fallback.
+        # Classify: BERT → fallback.
         alias = self._classify_alias(cfg)
         slug = self._resolve_alias(alias, cfg)
 
@@ -249,14 +232,21 @@ class SmartRouterProfile(ProviderProfile):  # type: ignore[misc]
         if not text:
             return _FALLBACK_ALIAS
 
-        result = classify_deterministic(text, None)
-        if result is None:
-            result = self._classify_gemma(text, cfg)
-        if result is None:
-            return _FALLBACK_ALIAS
+        # BERT classifier (fast, ~5-15ms)
+        try:
+            bert = get_classifier()
+            if bert is not None:
+                result = bert.classify_to_result(text)
+                if result is not None:
+                    return self._apply_route(result, cfg)
+        except Exception as exc:
+            logger.debug("BERT classifier unavailable: %s", exc)
 
+        return _FALLBACK_ALIAS
+
+    def _apply_route(self, result: ClassifierResult, cfg: dict[str, Any]) -> str:
         threshold = float(
-            (cfg.get("ollama") or {}).get("confidence_threshold", 0.70)
+            (cfg.get("bert") or {}).get("confidence_threshold", 0.45)
         )
         if result.confidence < threshold:
             return _FALLBACK_ALIAS
@@ -270,51 +260,6 @@ class SmartRouterProfile(ProviderProfile):  # type: ignore[misc]
         if result.risk.value in ("high", "critical"):
             return route[1]
         return primary_alias
-
-    def _classify_gemma(
-        self, text: str, cfg: dict[str, Any]
-    ) -> ClassifierResult | None:
-        """Synchronous Gemma classification via local Ollama."""
-        ollama = cfg.get("ollama") or {}
-        base_url = str(ollama.get("base_url", "http://127.0.0.1:11434"))
-        model = str(ollama.get("model", "gemma4:31b"))
-        timeout = float(ollama.get("timeout_seconds", 30))
-        max_tokens = int(ollama.get("max_output_tokens", 512))
-        temperature = float(ollama.get("temperature", 0.0))
-
-        try:
-            import httpx
-
-            resp = httpx.post(
-                f"{base_url.rstrip('/')}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": f"{_CLASSIFICATION_PROMPT} {text[:4000]}",
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_predict": max_tokens,
-                    },
-                },
-                timeout=timeout,
-            )
-            resp.raise_for_status()
-            raw = str(resp.json().get("response", "")).strip()
-        except Exception as exc:
-            logger.debug("gemma classification unavailable: %s", exc)
-            return None
-
-        if not raw:
-            return None
-        fence = _JSON_FENCE_RE.search(raw)
-        if fence:
-            raw = fence.group(1)
-        try:
-            data = json.loads(raw)
-            return ClassifierResult.model_validate(data)
-        except Exception as exc:
-            logger.debug("gemma returned unparseable classification: %s", exc)
-            return None
 
     def _resolve_alias(self, alias: str, cfg: dict[str, Any]) -> str:
         """Alias → concrete OpenRouter slug (config overrides > defaults)."""

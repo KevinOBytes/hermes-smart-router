@@ -41,8 +41,8 @@ class HealthChecker:
         # SQLite access
         results.append(self._check_state())
 
-        # Ollama reachability
-        results.extend(await self._check_ollama())
+        # BERT classifier availability
+        results.extend(await self._check_classifier())
 
         # OpenRouter auth
         results.append(await self._check_openrouter_auth())
@@ -75,59 +75,37 @@ class HealthChecker:
                 detail=f"State store error: {e}",
             )
 
-    async def _check_ollama(self) -> list[HealthStatus]:
-        """Check Ollama reachability and Gemma availability."""
+    async def _check_classifier(self) -> list[HealthStatus]:
+        """Check BERT classifier availability."""
         results: list[HealthStatus] = []
-        ollama_url = self._config.ollama.base_url.rstrip("/")
-
         try:
-            async with httpx.AsyncClient(timeout=3) as client:
-                resp = await client.get(f"{ollama_url}/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-                models = [m["name"] for m in data.get("models", [])]
+            from hermes_smart_router.bert_classifier import get_classifier
+
+            bert = get_classifier()
+            if bert is not None:
                 results.append(
                     HealthStatus(
-                        name="ollama",
+                        name="classifier",
                         healthy=True,
-                        detail=f"Reachable at {ollama_url}",
+                        detail="BERT classifier loaded",
                     )
                 )
-                # Check Gemma
-                gemma_model = self._config.ollama.model
-                if any(gemma_model in m for m in models):
-                    results.append(
-                        HealthStatus(
-                            name=f"ollama:{gemma_model}",
-                            healthy=True,
-                            detail=f"Model '{gemma_model}' available",
-                        )
+            else:
+                results.append(
+                    HealthStatus(
+                        name="classifier",
+                        healthy=False,
+                        detail="BERT classifier not available (model not found)",
                     )
-                else:
-                    results.append(
-                        HealthStatus(
-                            name=f"ollama:{gemma_model}",
-                            healthy=False,
-                            detail=f"Model '{gemma_model}' not found in Ollama",
-                        )
-                    )
-        except httpx.ConnectError:
-            results.append(
-                HealthStatus(
-                    name="ollama",
-                    healthy=False,
-                    detail=f"Connection refused at {ollama_url}",
                 )
-            )
         except Exception as e:
             results.append(
                 HealthStatus(
-                    name="ollama",
+                    name="classifier",
                     healthy=False,
                     detail=str(e),
                 )
             )
-
         return results
 
     async def _check_openrouter_auth(self) -> HealthStatus:

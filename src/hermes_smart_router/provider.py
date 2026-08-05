@@ -9,10 +9,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from hermes_smart_router.bert_classifier import get_classifier
 from hermes_smart_router.catalog import CatalogValidator
-from hermes_smart_router.classifier import Classifier
 from hermes_smart_router.config import SmartRouterConfig
-from hermes_smart_router.deterministic import classify_deterministic
 from hermes_smart_router.escalation import EscalationDetector
 from hermes_smart_router.health import HealthChecker
 from hermes_smart_router.models import (
@@ -42,7 +41,6 @@ class SmartRouterProvider:
         self,
         config: SmartRouterConfig,
         state: TaskState,
-        classifier: Classifier,
         policy: RoutePolicy,
         catalog: CatalogValidator,
         transport: OpenRouterTransport,
@@ -51,7 +49,6 @@ class SmartRouterProvider:
     ) -> None:
         self._config = config
         self._state = state
-        self._classifier = classifier
         self._policy = policy
         self._catalog = catalog
         self._transport = transport
@@ -88,32 +85,13 @@ class SmartRouterProvider:
             RouteSelection with primary and escalation aliases.
         """
         with Timer() as timer:
-            # 1. Try deterministic classification first
-            deterministic_result = classify_deterministic(user_request, tool_names)
-            if deterministic_result is not None:
-                route = self._policy.evaluate(
-                    deterministic_result,
-                    reason_code=ReasonCode.DETERMINISTIC,
-                )
-                self._telemetry.classification(
-                    task_id=task_id,
-                    session_id=session_id,
-                    task_class=route.task_class.value,
-                    confidence=deterministic_result.confidence,
-                    latency_ms=timer.elapsed_ms,
-                )
-                self._telemetry.route_selected(
-                    task_id=task_id,
-                    session_id=session_id,
-                    primary_alias=route.primary_alias,
-                    escalation_alias=route.escalation_alias,
-                    reason_code=route.reason_code.value,
-                )
-                self._persist_route(task_id, session_id, route)
-                return route
-
-            # 2. Try Gemma classifier
-            classifier_result = await self._classifier.classify(user_request)
+            # 1. Try BERT classifier
+            bert = get_classifier()
+            classifier_result = None
+            if bert is not None:
+                result = bert.classify_to_result(user_request)
+                if result is not None:
+                    classifier_result = result
 
             if classifier_result is not None:
                 route = self._policy.evaluate(classifier_result)
@@ -253,7 +231,6 @@ class SmartRouterProvider:
 
     async def close(self) -> None:
         """Close all resources."""
-        await self._classifier.close()
         await self._transport.close()
         await self._catalog.close()
         self._state.close()
