@@ -1,0 +1,51 @@
+graph TD
+    subgraph "User Request"
+        A[New task arrives] --> B{Deterministic<br/>classifier matches?}
+    end
+
+    B -->|Yes| C[Set route from<br/>deterministic rules]
+    B -->|No| D[Call Gemma 4<br/>local Ollama]
+
+    D --> E{Valid JSON<br/>and confidence<br/>>= 0.70?}
+    E -->|Yes| F[Extract task_class<br/>risk, sensitivity]
+    E -->|No| G[Fallback to<br/>Luna alias]
+
+    C --> H[Route Policy Engine]
+    F --> H
+    G --> H
+
+    H --> I[Map to primary alias<br/>+ escalation alias]
+    I --> J[Resolve alias to<br/>OpenRouter model slug]
+
+    J --> K[Pin model for<br/>tool loop duration]
+
+    subgraph "Tool Loop"
+        L[Execute task<br/>with pinned model] --> M{Check tool<br/>results}
+        M -->|Success| N[Continue loop]
+        M -->|Failure| O[Escalation<br/>Detector]
+        O --> P{Exceeded<br/>thresholds?}
+        P -->|No| N
+        P -->|Yes| Q[Escalate to<br/>backup model]
+        Q --> L
+    end
+
+    N --> R[Task complete]
+
+    style A fill:#1a1a2e,stroke:#e94560,color:#fff
+    style B fill:#16213e,stroke:#0f3460,color:#fff
+    style C fill:#0f3460,stroke:#e94560,color:#fff
+    style D fill:#16213e,stroke:#0f3460,color:#fff
+    style E fill:#16213e,stroke:#0f3460,color:#fff
+    style F fill:#0f3460,stroke:#e94560,color:#fff
+    style G fill:#533483,stroke:#e94560,color:#fff
+    style H fill:#1a1a2e,stroke:#e94560,color:#fff
+    style I fill:#0f3460,stroke:#e94560,color:#fff
+    style J fill:#16213e,stroke:#0f3460,color:#fff
+    style K fill:#1a1a2e,stroke:#e94560,color:#fff
+    style L fill:#16213e,stroke:#0f3460,color:#fff
+    style M fill:#16213e,stroke:#0f3460,color:#fff
+    style N fill:#0f3460,stroke:#e94560,color:#fff
+    style O fill:#533483,stroke:#e94560,color:#fff
+    style P fill:#16213e,stroke:#0f3460,color:#fff
+    style Q fill:#533483,stroke:#e94560,color:#fff
+    style R fill:#1a4a2e,stroke:#2ecc71,color:#fff

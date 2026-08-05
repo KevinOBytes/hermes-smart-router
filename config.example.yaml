@@ -1,0 +1,106 @@
+# Hermes Smart Router — Example Configuration
+#
+# Copy this to ~/.hermes/config.yaml and add the smart_router section.
+# Then set your main model to tko/smart-router.
+
+smart_router:
+  # Operating mode: shadow (default, records routes without changing model),
+  # active (performs routing), or fixed (always uses one alias)
+  mode: shadow
+
+  # Alias to use in fixed mode
+  fixed_alias: luna
+
+  # Local Ollama classifier configuration
+  ollama:
+    model: gemma4:12b
+    base_url: http://127.0.0.1:11434
+    timeout_seconds: 3
+    temperature: 0.0
+    max_output_tokens: 256
+    confidence_threshold: 0.70
+
+  # Logical alias -> concrete model slug mappings
+  # Override defaults by providing your own entries here.
+  aliases:
+    luna:
+      model_slug: openai/gpt-5.6-luna
+      requires_tools: true
+      requires_vision: true
+      supports_audio: true
+    deepseek_flash:
+      model_slug: deepseek/deepseek-v4-flash-0731
+      requires_tools: true
+      requires_vision: false
+      supports_audio: false
+    glm:
+      model_slug: zai/glm-5.2
+      requires_tools: true
+      requires_vision: true
+      supports_audio: false
+    sol:
+      model_slug: openai/gpt-5.6-sol
+      requires_tools: true
+      requires_vision: true
+      supports_audio: true
+    sonnet:
+      model_slug: anthropic/claude-sonnet-5
+      requires_tools: true
+      requires_vision: true
+      supports_audio: false
+    opus:
+      model_slug: anthropic/claude-opus-5
+      requires_tools: true
+      requires_vision: true
+      supports_audio: false
+    fable:
+      model_slug: anthropic/claude-fable-5
+      requires_tools: true
+      requires_vision: true
+      supports_audio: false
+      fallback_slug: anthropic/claude-opus-5
+    kimi_k3:
+      model_slug: moonshot/kimi-k3
+      requires_tools: true
+      requires_vision: true
+      supports_audio: false
+    kimi_code:
+      model_slug: moonshot/kimi-k2.7-code
+      requires_tools: true
+      requires_vision: false
+      supports_audio: false
+
+  # Per-task-class route overrides (optional)
+  # Format: task_class: {primary: alias, escalation: alias}
+  routes:
+    # structured_simple: {primary: luna, escalation: glm}
+    # agentic_execution: {primary: deepseek_flash, escalation: sol}
+    # software_engineering: {primary: glm, escalation: opus}
+    # security_engineering: {primary: sol, escalation: fable}
+    # knowledge_reasoning: {primary: glm, escalation: kimi_k3}
+    # writing_communication: {primary: sonnet, escalation: opus}
+    # computer_use: {primary: sonnet, escalation: opus}
+    # visual_frontend: {primary: kimi_k3, escalation: opus}
+
+  # Sensitivity-based provider restrictions
+  sensitivity:
+    enabled: false
+    # allowed_providers: [openai, anthropic]
+    warn_providers: [deepseek, zai, moonshot]
+
+  # OpenRouter configuration
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    strict_identity: false
+    # provider_preferences:
+    #   order: [OpenAI, Anthropic]
+    #   allow_fallbacks: false
+
+  # Task state backend
+  state:
+    backend: sqlite
+    path: ~/.hermes/smart-router/state.db
+
+  # Task pin TTL (seconds)
+  task_ttl_seconds: 3600
