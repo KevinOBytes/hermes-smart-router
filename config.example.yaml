@@ -13,17 +13,11 @@ smart_router:
   # Alias to use in fixed mode
   fixed_alias: luna
 
-  # Local Ollama classifier configuration
-  # gemma4:31b needs ~20-25s for classification on Apple Silicon;
-  # keep timeout_seconds at 30 or higher. Smaller Gemma models are
-  # faster but less accurate on the 8-class taxonomy.
-  ollama:
-    model: gemma4:31b
-    base_url: http://127.0.0.1:11434
-    timeout_seconds: 30
-    temperature: 0.0
-    max_output_tokens: 512
-    confidence_threshold: 0.70
+  # Local BERT classifier (distilbert + MLX, ~5-15ms).
+  # Model must be trained from prompt-classifier and copied to model_path.
+  bert:
+    model_path: ~/.smart-router-proxy/classifier-model
+    confidence_threshold: 0.45
 
   # Logical alias -> concrete model slug mappings
   # Override defaults by providing your own entries here.

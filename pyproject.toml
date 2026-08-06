@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hermes-smart-router"
 version = "0.1.0"
-description = "Hermes Agent model-provider plugin: task-aware model routing via local Gemma classification"
+description = "Hermes Agent model-provider plugin: task-aware model routing via local BERT classification"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -45,9 +45,7 @@ target-version = "py311"
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/hermes_smart_router/deterministic.py" = ["E501"]
-"src/hermes_smart_router/classifier.py" = ["E501"]
-"tests/test_classifier.py" = ["E501"]
+"src/hermes_smart_router/bert_classifier.py" = ["E501"]
 
 [tool.mypy]
 strict = true

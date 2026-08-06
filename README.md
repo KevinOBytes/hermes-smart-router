@@ -61,6 +61,14 @@ models:
 
 The BERT classifier model must be trained separately. See [prompt-classifier](https://github.com/KevinOBytes/prompt-classifier) for training instructions.
 
+> **Prefer the standalone proxy.** For a persistent, always-on router that
+> serves any OpenAI-compatible client, use
+> [smart-router-proxy](https://github.com/KevinOBytes/smart-router-proxy)
+> instead — it exposes the same routing logic as an HTTP service (e.g. as a
+> Hermes custom provider at `http://127.0.0.1:8199/v1`) and shares this
+> repo's task taxonomy. This package is the in-process model-provider plugin
+> variant for embedding routing directly inside Hermes.
+
 ## Configuration
 
 ```yaml
