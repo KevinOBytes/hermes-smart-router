@@ -64,7 +64,25 @@ models:
   default: tko/smart-router
 ```
 
-The BERT classifier model must be trained separately. See [prompt-classifier](https://github.com/KevinOBytes/prompt-classifier) for training instructions.
+The BERT classifier model must be trained separately, or download the
+pre-built weights from the
+[GitHub Release](https://github.com/KevinOBytes/hermes-smart-router/releases/tag/classifier-v1.0.0):
+
+```bash
+# Download the archive
+curl -L -o classifier.tar.zst \
+  https://github.com/KevinOBytes/hermes-smart-router/releases/download/classifier-v1.0.0/hermes-smart-router-classifier-v1.0.0-darwin-arm64.tar.zst
+
+# Verify the SHA-256
+shasum -a 256 classifier.tar.zst
+# 22916dce44764f08b5eeb9a70beb3a991c4ef9ce33292ed4f4fa83b6e3c0fcf7  classifier.tar.zst
+
+# Extract to the configured model path (default ~/.smart-router-proxy/classifier-model)
+mkdir -p ~/.smart-router-proxy/classifier-model
+zstd -dc classifier.tar.zst | tar -xf - -C ~/.smart-router-proxy/classifier-model
+```
+
+See [prompt-classifier](https://github.com/KevinOBytes/prompt-classifier) for training instructions if you'd rather build your own.
 
 > **Prefer the standalone proxy.** For a persistent, always-on router that
 > serves any OpenAI-compatible client, use
