@@ -41,7 +41,12 @@ If the classifier is unavailable or confidence is below threshold, the request f
 
 ```bash
 pip install hermes-smart-router
+# optional — local BERT classifier for per-task model selection:
+pip install 'hermes-smart-router[classifier]'
 ```
+
+Without the `[classifier]` extra the router still works, but every request
+falls back to the `luna` alias (no per-task classification).
 
 Then add the plugin to your Hermes config.yaml:
 
@@ -85,27 +90,28 @@ The plugin reads from the `smart_router` section of Hermes config.yaml. Configur
 
 | Task Class | Primary Alias | Escalation Alias |
 |---|---|---|
-| structured_simple | kimi_k3 | sonnet |
-| agentic_execution | sonnet | opus |
-| software_engineering | sonnet | opus |
-| security_engineering | opus | opus |
-| writing_communication | fable | opus |
-| visual_frontend | sonnet | opus |
-| computer_use | sonnet | sonnet |
-| research_analysis | deepseek_flash | opus |
+| structured_simple | luna | glm |
+| agentic_execution | deepseek_flash | sol |
+| software_engineering | glm | opus |
+| security_engineering | sol | fable |
+| knowledge_reasoning | glm | kimi_k3 |
+| writing_communication | sonnet | opus |
+| computer_use | sonnet | opus |
+| visual_frontend | kimi_k3 | opus |
 
 ## Alias Mappings
 
 | Alias | OpenRouter Slug |
 |---|---|
 | luna | openai/gpt-5.6-luna |
+| deepseek_flash | deepseek/deepseek-v4-flash-0731 |
+| glm | z-ai/glm-5.2 |
+| sol | openai/gpt-5.6-sol |
 | sonnet | anthropic/claude-sonnet-5 |
 | opus | anthropic/claude-opus-5 |
-| fable | anthropic/claude-sonnet-5-fable |
-| deepseek_flash | deepseek/deepseek-v4-flash-0731 |
-| kimi_k3 | moonshot/kimi-k3 |
-| sol | openai/gpt-5.6-sol |
-| glm | z-ai/glm-5.2 |
+| fable | anthropic/claude-fable-5 |
+| kimi_k3 | moonshotai/kimi-k3 |
+| kimi_code | moonshotai/kimi-k2.7-code |
 
 ## Health Checks
 

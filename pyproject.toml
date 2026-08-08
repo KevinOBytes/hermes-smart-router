@@ -19,6 +19,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional local BERT classifier (distilbert + MLX on Apple Silicon).
+# Without it the router falls back to the `luna` alias — install only if
+# you want per-task model classification.
+classifier = [
+    "mlx",
+    "numpy",
+    "transformers",
+    "torch",
+]
 test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
@@ -52,6 +61,15 @@ strict = true
 python_version = "3.11"
 exclude = ["tests/"]
 disable_error_code = ["import-untyped"]
+
+# The BERT classifier is an optional extra (mlx/numpy/transformers/torch are
+# not installed in a bare dev env). It degrades gracefully to a luna fallback
+# when absent, so missing-import errors are expected here.
+[[tool.mypy.overrides]]
+module = "hermes_smart_router.bert_classifier"
+disable_error_code = ["import-not-found"]
+ignore_errors = false
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

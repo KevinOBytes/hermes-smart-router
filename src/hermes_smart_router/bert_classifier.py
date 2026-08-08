@@ -2,6 +2,11 @@
 
 Loads the trained distilbert + MLX head model once and caches it.
 Falls back gracefully if the model isn't available.
+
+The heavy ML dependencies (mlx, numpy, transformers, torch) are imported
+lazily inside methods so importing this module never fails on machines
+without them — ``get_classifier()`` simply returns None and the router
+falls back to the ``luna`` alias.
 """
 
 from __future__ import annotations
@@ -10,11 +15,7 @@ import json
 import logging
 import os
 from pathlib import Path
-
-import mlx.core as mx
-import mlx.nn as nn
-import numpy as np
-from transformers import AutoTokenizer
+from typing import Any
 
 from hermes_smart_router.models import (
     ClassifierResult,
@@ -73,35 +74,21 @@ CATEGORY_DESTRUCTIVE: set[str] = {"security_threat"}
 CONFIDENCE_THRESHOLD = 0.45
 
 
-class ClassifierHead(nn.Module):
-    """Tiny MLP on top of frozen distilbert features."""
-
-    def __init__(self, input_dim: int = 768, num_classes: int = 10):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, num_classes),
-        )
-
-    def __call__(self, x: mx.array) -> mx.array:
-        return self.net(x)
-
-
 # ── Singleton ──────────────────────────────────────────────────────────
 _classifier: BertClassifier | None = None
 
 
 def get_classifier() -> BertClassifier | None:
+    """Return the cached classifier, or None if the model isn't available.
+
+    Never raises: missing ML deps or a missing model both resolve to None,
+    letting the router fall back to the ``luna`` alias.
+    """
     global _classifier
     if _classifier is None:
         try:
             _classifier = BertClassifier()
-        except Exception as exc:
+        except Exception as exc:  # missing deps / model / load failure
             logger.warning("BERT classifier unavailable: %s", exc)
             return None
     return _classifier
@@ -110,7 +97,26 @@ def get_classifier() -> BertClassifier | None:
 class BertClassifier:
     """Wraps the trained distilbert + MLX classifier head."""
 
-    def __init__(self, model_dir: str | Path = MODEL_DIR):
+    def __init__(self, model_dir: str | Path = MODEL_DIR) -> None:
+        # Lazy imports — these require the optional [classifier] extra.
+        # Importing this module must not depend on them.
+        try:
+            import mlx.core as mx  # noqa: F401
+            import mlx.nn as nn  # noqa: F401
+            import numpy as np  # noqa: F401
+            from transformers import AutoTokenizer  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "BERT classifier extra not installed. Install with: "
+                "pip install 'hermes-smart-router[classifier]'"
+            ) from exc
+
+        self._mx = mx
+        self._nn = nn
+        self._np = np
+        self._tokenizer_cls = AutoTokenizer
+        self._head = nn.Module
+
         model_dir = str(model_dir)
         config_path = os.path.join(model_dir, "config.json")
         weights_path = os.path.join(model_dir, "weights.safetensors")
@@ -122,15 +128,15 @@ class BertClassifier:
             )
 
         with open(config_path) as f:
-            self.config = json.load(f)
+            self.config: dict[str, Any] = json.load(f)
 
         self.id2label = {int(k): v for k, v in self.config["id2label"].items()}
-        self.num_classes = self.config["num_classes"]
-        self.max_length = self.config.get("max_length", 64)
+        self.num_classes = int(self.config["num_classes"])
+        self.max_length = int(self.config.get("max_length", 64))
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
 
-        self.model = ClassifierHead(num_classes=self.num_classes)
+        self.model = _build_head(self._nn, self.num_classes)
         self.model.load_weights(weights_path)
         mx.eval(self.model.parameters())
 
@@ -139,9 +145,11 @@ class BertClassifier:
         self.hf_model = AutoModel.from_pretrained(self.config["base_model"])
         self.hf_model.eval()
 
-    def _extract_features(self, texts: list[str]) -> mx.array:
+    def _extract_features(self, texts: list[str]) -> Any:
         import torch
 
+        mx = self._mx
+        np = self._np
         all_features = []
         for text in texts:
             enc = self.tokenizer(
@@ -162,8 +170,8 @@ class BertClassifier:
     def classify(self, text: str) -> tuple[str, float]:
         features = self._extract_features([text])
         logits = self.model(features)
-        probs = mx.softmax(logits, axis=1)
-        pred_idx = mx.argmax(logits, axis=1).item()
+        probs = self._mx.softmax(logits, axis=1)
+        pred_idx = self._mx.argmax(logits, axis=1).item()
         confidence = probs[0, pred_idx].item()
         return self.id2label[pred_idx], confidence
 
@@ -191,3 +199,25 @@ class BertClassifier:
             destructive_potential=destructive,
             confidence=confidence,
         )
+
+
+def _build_head(nn: Any, num_classes: int) -> Any:
+    """Small MLP on top of frozen distilbert features (defined lazily)."""
+
+    class ClassifierHead(nn.Module):  # type: ignore[misc]  # nn is lazy Any
+        def __init__(self, input_dim: int = 768, num_classes: int = num_classes):
+            super().__init__()
+            self.net = nn.Sequential(
+                nn.Linear(input_dim, 256),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, 128),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, num_classes),
+            )
+
+        def __call__(self, x: Any) -> Any:
+            return self.net(x)
+
+    return ClassifierHead()
