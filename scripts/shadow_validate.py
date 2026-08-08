@@ -2,12 +2,11 @@
 """Shadow mode validation — exercises the full pipeline against live services.
 
 Tests:
-1. Deterministic classifier (no external deps)
-2. Gemma classifier (local Ollama)
-3. Route policy evaluation
-4. OpenRouter transport (real API call)
-5. State persistence
-6. Escalation detection
+1. BERT classifier (local distilbert + MLX)
+2. Route policy evaluation
+3. OpenRouter transport (real API call)
+4. State persistence
+5. Escalation detection
 
 All routing decisions are recorded but the actual model used is the baseline
 (since we're in shadow mode).
@@ -81,8 +80,8 @@ FIXTURES = [
     (
         "ambiguous",
         "What do you think about the future of AI safety?",
-        None,  # ambiguous — defer to Gemma
-        "glm",  # Gemma classifies as knowledge_reasoning → glm
+        None,  # ambiguous — defer to BERT
+        "glm",  # BERT-classified as knowledge_reasoning → glm
     ),
 ]
 
@@ -90,8 +89,7 @@ FIXTURES = [
 
 results = {
     "total": 0,
-    "deterministic_hits": 0,
-    "gemma_classifications": 0,
+    "bert_classifications": 0,
     "fallbacks": 0,
     "correct_class": 0,
     "correct_alias": 0,
@@ -111,54 +109,39 @@ async def main() -> int:
     print("=" * 70)
     print()
 
-    from hermes_smart_router.deterministic import classify_deterministic
+    from hermes_smart_router.bert_classifier import get_classifier
     from hermes_smart_router.config import SmartRouterConfig
-    from hermes_smart_router.classifier import Classifier
     from hermes_smart_router.policy import RoutePolicy
     from hermes_smart_router.openrouter import OpenRouterTransport
     from hermes_smart_router.state import SqliteTaskState
     from hermes_smart_router.escalation import EscalationDetector
 
     config = SmartRouterConfig(mode="shadow")
-    classifier = Classifier(config.ollama)
+    classifier = get_classifier()
     policy = RoutePolicy(config)
     transport = OpenRouterTransport(config.openrouter, api_key=os.environ["OPENROUTER_API_KEY"])
 
-    # ── Step 1: Deterministic classifier ──────────────────────────────
-    print("[1/5] Deterministic classifier (no external deps)")
+    # ── Step 1: BERT classifier ───────────────────────────────────────
+    print("[1/5] BERT classifier (local distilbert + MLX)")
     print("-" * 50)
 
+    if classifier is None:
+        print("! BERT classifier unavailable (model not found) — continuing with fallbacks only")
+
     for desc, prompt, exp_class, exp_alias in FIXTURES:
-        result = classify_deterministic(prompt)
-        if result is not None:
-            actual = result.task_class.value
-            expected = exp_class if exp_class else actual
-            status = "✓" if actual == expected else "✗"
-            log(f"{status} {desc:<25s} → {actual:<25s} (expected {expected})")
-            results["deterministic_hits"] += 1
-        else:
-            log(f"~ {desc:<25s} → deferred to Gemma")
         results["total"] += 1
-
-    print()
-
-    # ── Step 2: Gemma classifier (live Ollama) ────────────────────────
-    print("[2/5] Gemma classifier (live Ollama)")
-    print("-" * 50)
-
-    for desc, prompt, exp_class, exp_alias in FIXTURES:
         try:
-            result = await classifier.classify(prompt)
+            result = classifier.classify_to_result(prompt) if classifier else None
             if result is not None:
                 actual = result.task_class.value
                 expected = exp_class if exp_class else actual
                 status = "✓" if actual == expected else "✗"
                 log(f"{status} {desc:<25s} → {actual:<25s} (conf={result.confidence:.2f})")
-                results["gemma_classifications"] += 1
+                results["bert_classifications"] += 1
                 if actual == expected:
                     results["correct_class"] += 1
             else:
-                log(f"~ {desc:<25s} → None (low confidence)")
+                log(f"~ {desc:<25s} → None (low confidence / no mapping)")
                 results["fallbacks"] += 1
         except Exception as e:
             log(f"! {desc:<25s} → ERROR: {e}")
@@ -166,20 +149,13 @@ async def main() -> int:
 
     print()
 
-    # ── Step 3: Route policy evaluation ──────────────────────────────
-    print("[3/5] Route policy evaluation")
+    # ── Step 2: Route policy evaluation ──────────────────────────────
+    print("[2/5] Route policy evaluation")
     print("-" * 50)
 
     for desc, prompt, exp_class, exp_alias in FIXTURES:
-        det_result = classify_deterministic(prompt)
-        if det_result is not None:
-            route = policy.evaluate(det_result)
-        else:
-            try:
-                gemma_result = await classifier.classify(prompt)
-                route = policy.evaluate(gemma_result)
-            except Exception:
-                route = policy.evaluate(None)
+        result = classifier.classify_to_result(prompt) if classifier else None
+        route = policy.evaluate(result)
 
         actual_alias = route.primary_alias
         status = "✓" if actual_alias == exp_alias else "✗"
@@ -189,8 +165,8 @@ async def main() -> int:
 
     print()
 
-    # ── Step 4: OpenRouter transport (real API call) ──────────────────
-    print("[4/5] OpenRouter transport (live API call)")
+    # ── Step 3: OpenRouter transport (real API call) ──────────────────
+    print("[3/5] OpenRouter transport (live API call)")
     print("-" * 50)
 
     # Test with a cheap model (deepseek flash = $0.00000009/1K tokens)
@@ -226,8 +202,8 @@ async def main() -> int:
 
     print()
 
-    # ── Step 5: State + Escalation ────────────────────────────────────
-    print("[5/5] State persistence and escalation detection")
+    # ── Step 4: State + Escalation ────────────────────────────────────
+    print("[4/5] State persistence and escalation detection")
     print("-" * 50)
 
     db_path = os.path.join(tempfile.gettempdir(), "sr_shadow_test.db")
@@ -260,8 +236,7 @@ async def main() -> int:
     print("SUMMARY")
     print("=" * 70)
     print(f"  Total fixtures:              {results['total']}")
-    print(f"  Deterministic hits:          {results['deterministic_hits']}")
-    print(f"  Gemma classifications:      {results['gemma_classifications']}")
+    print(f"  BERT classifications:        {results['bert_classifications']}")
     print(f"  Fallbacks (low conf/error):  {results['fallbacks']}")
     print(f"  Correct class:              {results['correct_class']}")
     print(f"  Correct alias:              {results['correct_alias']}")
@@ -270,7 +245,7 @@ async def main() -> int:
     print()
 
     all_ok = (
-        results["deterministic_hits"] > 0
+        results["bert_classifications"] > 0
         and results["openrouter_success"] > 0
         and results["correct_alias"] > 0
     )

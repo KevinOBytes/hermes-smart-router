@@ -19,8 +19,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from hermes_smart_router.bert_classifier import get_classifier
 from hermes_smart_router.config import SmartRouterConfig
-from hermes_smart_router.deterministic import classify_deterministic
 from hermes_smart_router.models import TaskClass
 from hermes_smart_router.policy import RoutePolicy
 
@@ -70,7 +70,7 @@ FIXTURES: list[dict] = [
     },
     {
         "text": "What do you think about the future of AI?",
-        "expected_class": None,  # ambiguous, defers to Gemma
+        "expected_class": None,  # ambiguous, defers to BERT/fallback
         "expected_alias": "luna",  # fallback
     },
     {
@@ -134,12 +134,13 @@ def main() -> None:
 
         start = time.monotonic()
 
-        # Run deterministic classifier
-        det_result = classify_deterministic(text)
-        if det_result is not None:
-            route = policy.evaluate(det_result)
+        # Run the BERT classifier (sole classifier in the current pipeline)
+        classifier = get_classifier()
+        result = classifier.classify_to_result(text) if classifier else None
+        if result is not None:
+            route = policy.evaluate(result)
         else:
-            # Simulate Gemma fallback
+            # BERT unavailable or below confidence threshold — fallback
             route = policy.evaluate(None)
             results["fallback"] += 1
 

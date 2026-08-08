@@ -1,10 +1,10 @@
 Objective
 
-Build a production-ready, standalone Hermes model-provider plugin that presents one stable virtual model, tko/smart-router, while selecting and escalating concrete OpenRouter models according to task type and deterministic runtime evidence. A local Ollama-hosted Gemma 4 model classifies new tasks. Hermes users never manually change models.
+Build a production-ready, standalone Hermes model-provider plugin that presents one stable virtual model, tko/smart-router, while selecting and escalating concrete OpenRouter models according to task type and deterministic runtime evidence. A local BERT classifier (distilbert + MLX) classifies new tasks. Hermes users never manually change models.
 
 Architecture
 
-The package registers a Hermes model-provider called smart-router. On the first inference request for a new task, it applies deterministic policy rules and then asks gemma4:31b through the loopback Ollama API for a strict JSON classification. The policy maps that classification to a logical model alias and resolves the alias to a configured OpenRouter model identifier.
+The package registers a Hermes model-provider called smart-router. On the first inference request for a new task, it asks the local BERT classifier (distilbert + MLX, `~/.smart-router-proxy/classifier-model`) for a classification. The policy maps that classification to a logical model alias and resolves the alias to a configured OpenRouter model identifier.
 
 The chosen model remains pinned for the complete Hermes tool loop. On subsequent calls, the plugin inspects tool results and state for deterministic escalation signals. Escalation changes the pinned model while preserving the complete message, tool-call, and tool-result history.
 
@@ -114,7 +114,7 @@ The installer must not assume those slugs exist. Startup validation queries the 
 
 Classification contract
 
-Gemma returns only this schema:
+The BERT classifier returns a `ClassifierResult` with these typed fields:
 
 {
   "task_class": "software_engineering",
@@ -127,15 +127,15 @@ Gemma returns only this schema:
   "confidence": 0.93
 }
 
-The plugin validates the response using an enum-constrained typed schema. Gemma never returns a provider or model name. Prompt text cannot select a provider or bypass policy.
+The plugin validates the response using an enum-constrained typed schema. The classifier never returns a provider or model name. Prompt text cannot select a provider or bypass policy.
 
-Classification uses the initial root user request and minimal task metadata, not the entire accumulated transcript. The default classifier timeout is three seconds, temperature is zero, and maximum generated tokens is 256.
+Classification uses the initial root user request and minimal task metadata, not the entire accumulated transcript. The default classifier confidence threshold is 0.45.
 
-If Ollama is unavailable, times out, returns invalid output, or reports confidence below the configurable threshold, route to the OpenRouter-provided luna alias. Record the failure reason without recording prompt content.
+If the classifier is unavailable, returns None (below confidence threshold), or the label has no TaskClass mapping, route to the OpenRouter-provided luna alias. Record the failure reason without recording prompt content.
 
 Deterministic policy
 
-Rules execute before and after Gemma:
+Rules are applied on top of the BERT classification:
 
 Obvious structured extraction requests may be deterministically classified as structured_simple.
 
@@ -219,7 +219,7 @@ Observability
 
 Produce structured events for classification, route selection, classifier fallback, provider request, provider failure, escalation, task completion, and policy warnings. Include task/session correlation, aliases, concrete model identifiers, latency, token usage, estimated cost when supplied, and reasons. Exclude content by default.
 
-Provide health checks for configuration validity, Ollama reachability, Gemma availability, OpenRouter authentication, model-catalog resolution, database access, and shadow-baseline validity.
+Provide health checks for configuration validity, BERT classifier availability, OpenRouter authentication, model-catalog resolution, database access, and shadow-baseline validity.
 
 Testing and acceptance
 
